@@ -22,10 +22,12 @@ simulator_args['switch_maps'] = False
 simulator_args['num_simulators'] = 8
 simulator_args['game_args'] = ""
 
+simulator_args['sensor_args'] = None
+
 ## Experience
 # Train experience
 train_experience_args = {}
-train_experience_args['memory_capacity'] = 30000
+train_experience_args['memory_capacity'] = 10000
 train_experience_args['history_length'] = 4
 train_experience_args['history_step'] = 1
 train_experience_args['shared'] = False
@@ -34,7 +36,7 @@ train_experience_args['num_prev_acts_to_return'] = 0
 
 # Test policy experience
 test_policy_experience_args = train_experience_args.copy()
-test_policy_experience_args['memory_capacity'] = 20000
+test_policy_experience_args['memory_capacity'] = 5000
 	
 ## Agent	
 agent_args = {}
@@ -43,13 +45,16 @@ agent_args = {}
 agent_args['agent_type'] = 'all_actions_at_once_advantage'
 
 # preprocessing
-agent_args['preprocess_input_images'] = lambda x: x / 255. - 0.5
 agent_args['preprocess_input_measurements'] = lambda x: x / 100. - 0.5
 agent_args['preprocess_input_targets'] = lambda x: x
 agent_args['postprocess_predictions'] = lambda x: x
 agent_args['discrete_controls_manual'] = []
 agent_args['opposite_button_pairs'] = []
-	
+
+agent_args['color_mode'] = simulator_args['color_mode']
+
+agent_args['sensor_args'] = None
+
 # agent properties
 agent_args['new_memories_per_batch'] = 8
 agent_args['add_experiences_every'] = 1

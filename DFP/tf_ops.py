@@ -12,15 +12,26 @@ def mse_ignore_nans(preds, targets, **kwargs):
     targets_nonan = tf.where(tf.is_nan(targets), preds, targets)
     return tf.reduce_mean(tf.square(targets_nonan - preds), **kwargs)
 
-def conv2d(input_, output_dim, 
-        k_h=3, k_w=3, d_h=2, d_w=2, msra_coeff=1,
-        name="conv2d"):
+
+def conv2d(input_, output_dim, k_h=3, k_w=3, d_h=2, d_w=2, msra_coeff=1, name="conv2d"):
     with tf.variable_scope(name):
-        w = tf.get_variable('w', [k_h, k_w, input_.get_shape()[-1], output_dim],
-                            initializer=tf.truncated_normal_initializer(stddev=msra_coeff * msra_stddev(input_, k_h, k_w)))
+        w = tf.get_variable(
+                'w', [k_h, k_w, input_.get_shape()[-1], output_dim],
+                initializer=tf.truncated_normal_initializer(
+                    stddev=msra_coeff * msra_stddev(input_, k_h, k_w)))
         b = tf.get_variable('b', [output_dim], initializer=tf.constant_initializer(0.0))
 
-        return tf.nn.bias_add(tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME'), b)
+        return tf.nn.bias_add(
+                tf.nn.conv2d(input_, w, strides=[1, d_h, d_w, 1], padding='SAME'), b)
+
+
+def deconv2d(input_, output_dim, k_h=3, k_w=3, d_h=2, d_w=2, msra_coeff=1, name="deconv2d"):
+    with tf.variable_scope(name):
+        return tf.layers.conv2d_transpose(
+                input_, output_dim, (k_h, k_w), (d_h, d_w), padding='SAME',
+                kernel_initializer=tf.truncated_normal_initializer(
+                    stddev=msra_coeff * msra_stddev(input_, k_h, k_w)))
+
 
 def lrelu(x, leak=0.2, name="lrelu"):
     with tf.variable_scope(name):
@@ -36,7 +47,7 @@ def linear(input_, output_size, name='linear', msra_coeff=1):
                                 tf.random_normal_initializer(stddev=msra_coeff * msra_stddev(input_, 1, 1)))
         b = tf.get_variable("b", [output_size], initializer=tf.constant_initializer(0.0))
         return tf.matmul(input_, w) + b
-    
+
 def conv_encoder(data, params, name, msra_coeff=1):
     layers = []
     for nl, param in enumerate(params):
@@ -44,11 +55,62 @@ def conv_encoder(data, params, name, msra_coeff=1):
             curr_inp = data
         else:
             curr_inp = layers[-1]
-            
-        layers.append(lrelu(conv2d(curr_inp, param['out_channels'], k_h=param['kernel'], k_w=param['kernel'], d_h=param['stride'], d_w=param['stride'], name=name + str(nl), msra_coeff=msra_coeff)))
-        
+
+        layers.append(
+                lrelu(conv2d(
+                    curr_inp, param['out_channels'],
+                    k_h=param['kernel'], k_w=param['kernel'],
+                    d_h=param['stride'], d_w=param['stride'],
+                    name=name + str(nl), msra_coeff=msra_coeff)))
+
     return layers[-1]
-        
+
+def conv_decoder(data, params, name, k_output, h, w, msra_coeff=1):
+    layers = []
+
+    for nl, param in enumerate(reversed(params)):
+        if len(layers) == 0:
+            curr_inp = data
+        else:
+            curr_inp = layers[-1]
+
+        layers.append(
+                lrelu(deconv2d(
+                    curr_inp, param['out_channels'],
+                    k_h=param['kernel'], k_w=param['kernel'],
+                    d_h=param['stride'], d_w=param['stride'],
+                    name=name + str(nl), msra_coeff=msra_coeff)))
+
+    layers.append(
+            lrelu(deconv2d(
+                layers[-1], k_output, k_h=3, k_w=3, d_h=1, d_w=1,
+                name=name + str(len(layers)), msra_coeff=msra_coeff)))
+
+    return tf.image.resize_images(layers[-1], (h, w))
+
+
+def conv_encoder_extra_layers(data, params, name, msra_coeff=1, sensor_args=None):
+    import vizdoom_utils.sensors as sensors
+
+    layers = []
+    layers.append(lrelu(conv2d(data, 8, name='conv1')))
+    layers.append(lrelu(conv2d(layers[-1], 16, name='conv2')))
+    layers.append(lrelu(deconv2d(layers[-1], 16), name='deconv1'))
+    layers.append(lrelu(deconv2d(layers[-1], 11, name='deconv2')))
+    layers.append(tf.concat([data, layers[-1]], -1))
+
+    for nl, param in enumerate(params):
+        curr_inp = layers[-1]
+
+        layers.append(
+                lrelu(conv2d(
+                    curr_inp, param['out_channels'],
+                    k_h=param['kernel'], k_w=param['kernel'],
+                    d_h=param['stride'], d_w=param['stride'],
+                    name=name + str(nl), msra_coeff=msra_coeff)))
+
+    return layers[-1]
+
 def fc_net(data, params, name, last_linear = False, return_layers = [-1], msra_coeff=1):
     layers = []
     for nl, param in enumerate(params):
@@ -56,12 +118,12 @@ def fc_net(data, params, name, last_linear = False, return_layers = [-1], msra_c
             curr_inp = data
         else:
             curr_inp = layers[-1]
-        
+
         if nl == len(params) - 1 and last_linear:
             layers.append(linear(curr_inp, param['out_dims'], name=name + str(nl), msra_coeff=msra_coeff))
         else:
             layers.append(lrelu(linear(curr_inp, param['out_dims'], name=name + str(nl), msra_coeff=msra_coeff)))
-            
+
     if len(return_layers) == 1:
         return layers[return_layers[0]]
     else:
